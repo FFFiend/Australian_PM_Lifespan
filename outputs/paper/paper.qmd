@@ -1,0 +1,104 @@
+---
+title: "Analyzing life-span of individuals on the list of prime ministers in Australia"
+author: 
+  - Owais Zahid
+thanks: "Code and data are available at: https://github.com/FFFiend/Australian_PM_Lifespan"
+date: today
+date-format: long
+abstract: "This paper provides a detailed account of working with, cleaning and presenting the data contained in the List of prime ministers of Australia web page."
+format: pdf
+number-sections: true
+bibliography: references.bib
+---
+
+# Introduction
+Disclaimer: packages used were xml2 [@citexml], Tidyverse [@tidyy], Janitor [@janitaurr], the R programming language [@citeR] and the RStudio platform [@citeRStudio].
+
+I decided to scrape the List of prime ministers of Australia wikipedia page using the rvest package [@citepage]. As a first step, I visited the page to inspect the layout in case there were multiple tables because I suspected that would cause me trouble during extracting the html content using the aforementioned package and luckily, there was just one table. It is worth noting that this is not a scalable strategy when dealing with hundreds or even dozens of web-pages. 
+
+Cleaning the data that I extracted from the page took me the longest time. More specifically, upon extracting web page contents using the read_html function I was met with a table containing duplicate rows and columns with duplicate names as shown below:
+```{r}
+#| include: true
+#| warning: false
+#| message: false
+#| echo: false
+
+library("rvest")
+library("janitor")
+library("tidyverse")
+raw_data = read_html("https://en.wikipedia.org/wiki/List_of_prime_ministers_of_Australia")
+# getting data into table form
+parsed_data = raw_data |> html_element(".wikitable") |> html_table()
+
+parsed_data
+```
+# About the data
+We can see that a few president's served a term in office more than once due to the existence of duplicate names within the dataframe. We can also see that the extracted table itself is poorly formatted, with improper indexing that is duplicate and inconsistent. Furthermore, there are three columns with the same name "Term of office" which should really be more like "start of term", "end of term" and "term duration". We also have data on each candidate's political party, and the ministry, monarch and governer general that they served under.
+
+# Data Cleaning
+I tried running distinct() on the entire table in the hopes of extracting all unique entries but when that didn't work, I decided to use dataframe indexing to remove the duplicate row at the top, and then grabbed the 3rd column containing all the president names along with their birth and death years to produce a column containing only distinct entries as follows:
+```{r}
+#| include: true
+#| warning: false
+#| message: false
+#| echo: false
+parsed_data = parsed_data[-1,]
+presidents = distinct(parsed_data[3])
+bug = presidents[24:31,]
+presidents
+```
+At this point all I had to do was parse each entry in the column for the names, birth and death years and produce a table displaying the same data, albeit in distinct columns along with an Age at death column. I proceded as follows: 
+```{r}
+#| include: true
+#| warning: false
+#| message: false
+#| echo: false
+entry = slice(presidents, 3)
+name <- sub("\\(.*", "", entry)
+years <- sub(".*\\((.*)\\).*", "\\1", entry)
+misc <- sub(".*\\)", "", entry)
+name
+years
+misc
+```
+I extracted the contents of each row in the 1-column dataframe we obtained previously as shown above, discarded the content after the birth and death years and then created the final table below (using the Knitr [@citeknit] package):
+```{r}
+#| include: true
+#| warning: false
+#| message: false
+#| echo: false
+
+library("knitr")
+parsed_data_separated <- presidents %>%
+  separate(`Name(Birth–Death)Constituency`, into = c("Name", "BirthYear_DeathYear", "Misc"),
+            sep = "\\(|\\)",
+            extra = "merge",
+            fill = "right")
+
+# Separate 'BirthYear_DeathYear' into 'BirthYear' and 'DeathYear'
+parsed_data_separated <- parsed_data_separated %>%
+  separate(BirthYear_DeathYear, into = c("BirthYear", "DeathYear"), sep = "-", fill = "right")
+
+new_table <- parsed_data_separated %>%
+  select(Name, BirthYear)
+
+cleaned_data <-
+  new_table |>
+  separate(BirthYear, into = c("birth", "died"), 
+           sep = "–") |>
+  mutate(across(c(birth, died), as.integer)) |> 
+  mutate(Age_at_Death = died - birth)
+
+cleaned_data |>
+  head() |>
+  kable(
+    col.names = c("Prime Minister", "Birth year", "Death year", "Age at death"),
+    caption=("Final table showcasing when each prime minister was born, and died along with their age at death. ")
+    )
+```
+Learning how to create new columns using values from a pre-existing column, as well as separating on strings was a lot of fun as it reminded me of my earlier days of programming in Python, however I would do a couple things differently if I were to repeat this workflow to accomplish a similar task in the future: 
+
+- Skim through the documentation for common libraries before starting the paper, as this saves time and helps one focus on the content and data analysis instead of looking up functions and syntax.
+- Get some more practice with using R pipes as they're a useful tool and cut down on the amount of code you need to write.
+
+# References
